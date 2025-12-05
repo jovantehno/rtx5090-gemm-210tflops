@@ -2,6 +2,8 @@
 
 **From 7 TFLOPS to 380 TFLOPS: A hands-on journey through CUDA GEMM optimization**
 
+> **We present the first characterization of GEMM block scheduling on NVIDIA's Blackwell architecture.** While A100 (40MB L2) works well with a single optimal swizzle stride (1792), RTX 5090's 2.4x larger L2 cache (96MB) creates a more complex optimization landscape demanding size-dependent stride selection (512 to 8192). Our PTX-optimized kernel achieves **380 TFLOPS—1.07x faster than cuBLAS** (354 TFLOPS)—by combining block swizzling with a 4-stage async pipeline, L2 prefetch hints, and shared memory padding.
+
 This repository contains 9 progressive CUDA examples that demonstrate how to write a high-performance matrix multiplication kernel from scratch. Starting with a naive implementation running at 7 TFLOPS, we apply optimization techniques one by one until we reach **380 TFLOPS** — that's **1.07x faster than cuBLAS** on an RTX 5090.
 
 ## Why This Matters
