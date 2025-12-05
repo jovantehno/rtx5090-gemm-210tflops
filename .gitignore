@@ -1,0 +1,24 @@
+# Compiled binaries
+01_naive_gemm
+02_tiled_gemm
+03_double_buffered_gemm
+04_wmma_tensor_core_gemm
+05_swizzled_gemm
+06_block_swizzle_l2_gemm
+07_async_copy_gemm
+08_combined_optimized_gemm
+
+# Object files
+*.o
+
+# Nsight Compute profiles
+*.ncu-rep
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor files
+*.swp
+*~
+.vscode/
