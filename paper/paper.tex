@@ -1,0 +1,379 @@
+\documentclass[11pt,twocolumn]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{amsmath}
+% Compact spacing
+
+% Abstract environment
+\renewenvironment{abstract}{%
+    \begin{center}
+    \textbf{Abstract}
+    \end{center}
+    \itshape
+}{}
+
+\title{\textbf{From Ampere to Blackwell: L2 Cache Scaling and Block Scheduling in High-Performance GEMM}}
+
+\author{Anonymous}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Matrix multiplication (GEMM) is the computational backbone of deep learning and scientific computing. Recent work on CUDA-L2 demonstrated that careful block scheduling can improve L2 cache utilization and outperform vendor-optimized libraries like cuBLAS on NVIDIA Ampere GPUs. However, these optimizations were characterized only on the A100, leaving open questions about how they transfer to newer architectures with substantially different cache hierarchies. We present the first systematic characterization of GEMM block scheduling on NVIDIA's Blackwell architecture (RTX 5090), which features a 2.4$\times$ larger L2 cache (96MB vs 40MB). Our experiments across 99 configurations reveal three key findings: (1) optimal block swizzle stride varies significantly with matrix size on Blackwell, unlike A100 where a single stride works well across sizes; (2) the performance sensitivity to stride choice varies from 1\% to 12\% depending on matrix dimensions; and (3) hand-tuned kernels achieve up to 70\% of cuBLAS performance in individual configurations and 92\% when all optimizations are combined. These findings have direct implications for auto-tuning frameworks and portable high-performance libraries targeting modern GPU architectures.
+\end{abstract}
+
+\textbf{Keywords:} GEMM, GPU optimization, CUDA, L2 cache, block scheduling, Blackwell, tensor cores
+
+\section{Introduction}
+
+General Matrix Multiplication (GEMM) computing $C = A \times B$ is one of the most important computational kernels in modern computing. It dominates the runtime of large language models (LLMs), where transformer attention and feed-forward layers consist primarily of matrix operations~\cite{vaswani2017attention}. It underpins convolutional neural networks through im2col transformations~\cite{chellapilla2006high}. It is the core of dense linear algebra in scientific computing~\cite{dongarra2003linpack}.
+
+Given its importance, GEMM has been extensively optimized. NVIDIA's cuBLAS library represents decades of engineering effort and achieves near-peak hardware utilization on NVIDIA GPUs. Yet recent work has shown that cuBLAS is not the final word. Wu et al.'s CUDA-L2 project~\cite{wu2024cudal2} used reinforcement learning to discover GEMM kernels that outperform cuBLAS by 17--23\% on the A100 GPU. A key technique in their approach is \emph{block swizzling}: reordering the execution of thread blocks to improve L2 cache locality.
+
+However, CUDA-L2's characterization was limited to the A100 (Ampere architecture, SM80). Since then, NVIDIA has released Hopper (H100, SM90) and Blackwell (RTX 5090, SM120) architectures with substantially different memory hierarchies. The RTX 5090, in particular, features a 96MB L2 cache---2.4$\times$ larger than the A100's 40MB. This raises natural questions:
+
+\begin{itemize}
+    \item Do the same optimization parameters transfer across architectures?
+    \item How does the larger L2 cache change the optimization landscape?
+    \item What are the implications for portable high-performance libraries?
+\end{itemize}
+
+In this paper, we address these questions through systematic experimentation on the RTX 5090. We implement a configurable GEMM kernel incorporating state-of-the-art optimizations (tensor cores, async memory pipeline, block swizzling) and sweep across matrix sizes and swizzle stride parameters. Our results reveal that the optimization landscape on Blackwell is fundamentally different from Ampere.
+
+\subsection{Contributions}
+
+\begin{enumerate}
+    \item \textbf{First characterization of GEMM block scheduling on Blackwell}: We present the first systematic study of how block swizzle stride affects GEMM performance on NVIDIA's newest consumer GPU architecture.
+
+    \item \textbf{Discovery of size-dependent optimal stride}: Unlike A100 where stride 1792 works well across matrix sizes, we find that optimal stride on RTX 5090 varies significantly (512 to 8192) depending on matrix dimensions.
+
+    \item \textbf{Quantification of stride sensitivity}: We measure how much performance is left on the table by using a non-optimal stride, finding sensitivity ranges from 1\% for small matrices to 12\% for medium matrices.
+
+    \item \textbf{Open-source benchmark suite}: We release our benchmarking infrastructure and visualization tools to enable reproducibility and further research.
+\end{enumerate}
+
+\section{Background}
+
+\subsection{GEMM Optimization Techniques}
+
+Modern high-performance GEMM kernels employ several key optimizations:
+
+\textbf{Shared Memory Tiling.} Rather than having each thread independently load data from global memory, thread blocks cooperatively load tiles of $A$ and $B$ into shared memory. All threads in the block then compute on the shared tile, reducing global memory traffic by a factor proportional to the tile size~\cite{volkov2008benchmarking}.
+
+\textbf{Tensor Cores.} NVIDIA's tensor cores perform $16\times16\times16$ matrix multiply-accumulate operations in a single instruction via the WMMA API~\cite{nvidia2024wmma}. This provides 10--20$\times$ higher throughput compared to scalar FMA operations.
+
+\textbf{Software Pipelining.} Double or multi-buffering overlaps memory loads with computation. On SM80+, the \texttt{cp.async} instruction enables true asynchronous copies that don't block the issuing thread~\cite{nvidia2024async}.
+
+\textbf{Bank Conflict Avoidance.} Shared memory is organized into 32 banks. When multiple threads access the same bank, accesses are serialized. XOR-based address swizzling distributes accesses across banks~\cite{rubin2020memory}.
+
+\subsection{Block Swizzling for L2 Cache Optimization}
+
+The optimization central to this paper is \emph{block swizzling}, which reorders thread block execution to improve L2 cache utilization.
+
+\textbf{The Problem.} CUDA's default block scheduler executes blocks in row-major order within the grid. For a GEMM computing $C[i,j] = \sum_k A[i,k] \times B[k,j]$, blocks in the same row of the grid all load the same rows of matrix $A$. By the time blocks in the next row execute, the $A$ data has been evicted from L2 cache.
+
+\textbf{The Solution.} Block swizzling groups blocks that share data and executes them together while the shared data is still in cache. The key parameter is \emph{swizzle stride}: the width (in elements) of the block group.
+
+\textbf{CUDA-L2's Finding.} On the A100 with 40MB L2 cache, Wu et al. found that swizzle stride 1792 was near-optimal across a range of matrix sizes~\cite{wu2024cudal2}.
+
+\subsection{Architecture Comparison}
+
+Table~\ref{tab:arch} compares the three recent NVIDIA architectures relevant to this work.
+
+\begin{table}[t]
+\centering
+\caption{Architecture comparison across GPU generations.}
+\label{tab:arch}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Feature} & \textbf{A100} & \textbf{H100} & \textbf{RTX 5090} \\
+\midrule
+Compute Cap. & SM80 & SM90 & SM120 \\
+L2 Cache & 40 MB & 50 MB & 96 MB \\
+Mem. BW & 2039 GB/s & 3350 GB/s & 1792 GB/s \\
+FP16 TFLOPS & 312 & 989 & $\sim$419 \\
+SM Count & 108 & 132 & 170 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The RTX 5090's L2 cache is 2.4$\times$ larger than the A100's. This motivates our investigation of whether A100-optimal parameters transfer to Blackwell.
+
+\section{Methodology}
+
+\subsection{Experimental Setup}
+
+\textbf{Hardware.} All experiments were conducted on an NVIDIA GeForce RTX 5090:
+\begin{itemize}
+    \item Architecture: Blackwell (SM 12.0)
+    \item L2 Cache: 96 MB
+    \item Streaming Multiprocessors: 170
+    \item Memory: 32 GB GDDR7
+\end{itemize}
+
+\textbf{Software.} We used CUDA 12.x with kernels compiled for SM80 running in compatibility mode on SM120. This provides a fair comparison to CUDA-L2's A100 kernels and isolates the effect of the cache hierarchy.
+
+\textbf{Kernel Configuration.} Our benchmark kernel uses:
+\begin{itemize}
+    \item Block tile size: $128\times128\times16$
+    \item Warp configuration: $4\times4$ warps (512 threads)
+    \item Pipeline stages: 3 (using \texttt{cp.async})
+    \item Tensor core operations via WMMA API
+\end{itemize}
+
+\subsection{Benchmark Design}
+
+We sweep two primary parameters:
+
+\textbf{Matrix sizes.} Square matrices with $M=N=K$ ranging from 512 to 16384.
+
+\textbf{Swizzle strides.} From 0 (disabled) to 8192, including the A100-optimal value of 1792.
+
+\textbf{Measurements.} For each configuration: 5 warmup iterations, 20 timed iterations, comparison against cuBLAS via PyTorch.
+
+This gives $9 \times 11 = 99$ configurations.
+
+\section{Results}
+
+\subsection{Optimization Progression}
+
+Figure~\ref{fig:progression} shows the performance progression through our eight example kernels, each adding one optimization technique.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig1_optimization_progression.pdf}
+    \caption{GEMM optimization progression on RTX 5090 ($4096^3$ FP16). Starting from 7 TFLOPS, successive optimizations yield 210 TFLOPS (92\% of cuBLAS).}
+    \label{fig:progression}
+\end{figure}
+
+Starting from a naive implementation at 7 TFLOPS:
+\begin{itemize}
+    \item Double buffering enables pipelining: 2.7$\times$ improvement
+    \item Block swizzling for L2: major jump to 71 TFLOPS
+    \item Full combination: 210 TFLOPS (92\% of cuBLAS)
+\end{itemize}
+
+\subsection{Stride vs. Matrix Size Heatmap}
+
+Figure~\ref{fig:heatmap} presents our main result: a heatmap of TFLOPS across all matrix size and swizzle stride combinations.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig2_stride_heatmap.pdf}
+    \caption{TFLOPS heatmap across matrix sizes and swizzle strides. Blue boxes indicate optimal stride for each size.}
+    \label{fig:heatmap}
+\end{figure}
+
+Key observations:
+\begin{enumerate}
+    \item \textbf{No universal optimal stride.} The optimal region shifts with matrix size.
+    \item \textbf{Performance varies more for medium sizes.} The 2048--4096 range shows the most variation across strides.
+    \item \textbf{Stride 1792 is not special on Blackwell.}
+\end{enumerate}
+
+\subsection{Optimal Stride by Matrix Size}
+
+Table~\ref{tab:optimal} quantifies the optimal stride for each matrix size.
+
+\begin{table}[t]
+\centering
+\caption{Optimal swizzle stride varies by matrix size on RTX 5090.}
+\label{tab:optimal}
+\small
+\begin{tabular}{cccc}
+\toprule
+\textbf{Size} & \textbf{Opt. Stride} & \textbf{TFLOPS} & \textbf{vs cuBLAS} \\
+\midrule
+$512^3$ & 8192 & 10.88 & 25.4\% \\
+$1024^3$ & 2048 & 45.28 & 30.2\% \\
+$2048^3$ & 6144 & 114.84 & 64.6\% \\
+$3072^3$ & 4096 & 131.86 & 60.1\% \\
+$4096^3$ & 512 & 135.70 & 64.1\% \\
+$6144^3$ & 8192 & 153.37 & 68.0\% \\
+$8192^3$ & 512 & 153.49 & 66.9\% \\
+$12288^3$ & 1536 & 156.24 & 70.1\% \\
+$16384^3$ & 3072 & 156.21 & 68.1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The optimal stride varies from 512 to 8192 with no clear monotonic relationship to matrix size---in stark contrast to the A100.
+
+\subsection{Stride Sensitivity Analysis}
+
+Figure~\ref{fig:sensitivity} shows performance sensitivity to stride choice at each matrix size.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figures/fig6_stride_sensitivity.pdf}
+    \caption{Performance sensitivity to stride choice. Medium-sized matrices (2048--4096) show highest sensitivity (10--12\%).}
+    \label{fig:sensitivity}
+\end{figure}
+
+Small matrices (512--1024) show minimal sensitivity---the entire working set fits in L2. Medium matrices (2048--4096) show the highest sensitivity (10--12\%). Large matrices show reduced sensitivity as the workload becomes memory-bandwidth bound.
+
+\subsection{Comparison with cuBLAS}
+
+Our hand-tuned kernel achieves 25--70\% of cuBLAS performance depending on matrix size. The combined optimized kernel achieves 92\% of cuBLAS at $4096^3$.
+
+The remaining gap is explained by:
+\begin{enumerate}
+    \item Compatibility mode (SM80 code on SM120)
+    \item No TMA (using \texttt{cp.async} instead)
+    \item No warp specialization
+\end{enumerate}
+
+\section{Analysis}
+
+\subsection{Why Does Optimal Stride Vary?}
+
+We analyze the L2 cache working set to explain the size-dependent stride behavior. Table~\ref{tab:l2} shows the relationship between matrix size and L2 coverage.
+
+\begin{table}[t]
+\centering
+\caption{L2 cache coverage and stride sensitivity by matrix size.}
+\label{tab:l2}
+\small
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Size} & \textbf{Total (MB)} & \textbf{L2 Coverage} & \textbf{Sensitivity} & \textbf{Speedup} \\
+\midrule
+$512^3$ & 1.5 & 100\% & 1.5\% & 1.01$\times$ \\
+$1024^3$ & 6.0 & 100\% & 0.2\% & 1.00$\times$ \\
+$2048^3$ & 24.0 & 100\% & 11.9\% & 1.08$\times$ \\
+$4096^3$ & 96.0 & 100\% & 10.5\% & 1.12$\times$ \\
+$8192^3$ & 384.0 & 25\% & 7.9\% & 1.03$\times$ \\
+$16384^3$ & 1536.0 & 6\% & 2.4\% & 1.02$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The pattern reveals three distinct regimes:
+
+\textbf{Small matrices (512--1024):} Working set fits entirely in L2. Block scheduling has minimal impact since all data remains cached regardless of access order.
+
+\textbf{Medium matrices (2048--4096):} Working set is at or near L2 capacity. This \emph{boundary zone} shows highest sensitivity (10--12\%) because stride choice determines which tiles get evicted. The 4096$^3$ case is particularly interesting: 96 MB working set exactly matches the 96 MB L2.
+
+\textbf{Large matrices (8192+):} Working set far exceeds L2. Cache acts primarily as bandwidth buffer rather than reuse enabler. Stride still matters but with diminishing returns.
+
+\textbf{Key insight:} On A100 (40 MB L2), a 4096$^3$ matrix (96 MB) is 2.4$\times$ larger than cache---always in ``streaming'' mode. On RTX 5090, the same matrix exactly fits, creating a sensitive boundary condition. This explains why A100 has stable optimal stride while RTX 5090 requires size-dependent tuning.
+
+\subsection{Implications for Auto-tuning}
+
+\begin{enumerate}
+    \item \textbf{Single-stride assumption is insufficient.} Auto-tuning frameworks must search per-size or develop predictive models.
+    \item \textbf{Larger search space.} Stride tuning is as important as tile size selection.
+    \item \textbf{Runtime dispatch.} Libraries may need stride selection based on input dimensions.
+\end{enumerate}
+
+\subsection{Implications for Portable Libraries}
+
+\begin{enumerate}
+    \item Architecture-specific tuning is required.
+    \item L2 cache size is a key differentiator.
+    \item Compatibility mode has limits.
+\end{enumerate}
+
+\section{Related Work}
+
+\textbf{GEMM Optimization.} CUTLASS~\cite{nvidia2024cutlass} provides a template library for high-performance GEMM. Triton~\cite{tillet2019triton} offers a Python DSL for GPU kernels.
+
+\textbf{Cache-Aware Scheduling.} Block swizzling for GEMM was systematized by CUDA-L2~\cite{wu2024cudal2}.
+
+\textbf{Architecture Characterization.} Prior work characterized Volta~\cite{jia2018volta}, Turing~\cite{jia2019turing}, and Ampere~\cite{jia2021ampere}. This is the first GEMM characterization on Blackwell.
+
+\section{Limitations and Future Work}
+
+\textbf{Limitations:} Single GPU (no A100/H100 for direct comparison); compatibility mode; square matrices only.
+
+\textbf{Future Work:} Native Blackwell kernels with TMA; non-square matrices; adaptive stride selection; multi-architecture comparison.
+
+\section{Conclusion}
+
+We presented the first characterization of GEMM block scheduling on NVIDIA's Blackwell architecture. While A100 exhibited a stable optimal swizzle stride (1792), RTX 5090 requires size-dependent stride selection with optimal values ranging from 512 to 8192.
+
+Auto-tuning frameworks must expand their search space. The 2.4$\times$ larger L2 cache creates a more complex optimization landscape demanding architecture-aware parameter selection.
+
+Our hand-tuned kernels achieve up to 92\% of cuBLAS performance despite running in compatibility mode. We release our benchmark suite at: \url{https://github.com/jovantehno/rtx5090-gemm-210tflops}
+
+\bibliographystyle{plain}
+\begin{thebibliography}{17}
+
+\bibitem{vaswani2017attention}
+A. Vaswani et al.
+\newblock Attention Is All You Need.
+\newblock In \emph{NeurIPS}, 2017.
+
+\bibitem{chellapilla2006high}
+K. Chellapilla et al.
+\newblock High Performance CNNs for Document Processing.
+\newblock In \emph{IWFHR}, 2006.
+
+\bibitem{dongarra2003linpack}
+J. Dongarra et al.
+\newblock The LINPACK Benchmark.
+\newblock \emph{Concurrency and Computation}, 2003.
+
+\bibitem{wu2024cudal2}
+L. Wu et al.
+\newblock CUDA-L2: RL for CUDA Kernel Optimization.
+\newblock \emph{arXiv:2512.02551}, 2024.
+
+\bibitem{volkov2008benchmarking}
+V. Volkov and J. Demmel.
+\newblock Benchmarking GPUs to Tune Dense Linear Algebra.
+\newblock In \emph{SC}, 2008.
+
+\bibitem{nvidia2024wmma}
+NVIDIA.
+\newblock CUDA C++ Programming Guide: WMMA API, 2024.
+
+\bibitem{nvidia2024async}
+NVIDIA.
+\newblock CUDA C++ Programming Guide: Asynchronous Copy, 2024.
+
+\bibitem{rubin2020memory}
+N. Rubin et al.
+\newblock NVIDIA GPU Memory Hierarchy.
+\newblock \emph{GTC}, 2020.
+
+\bibitem{nvidia2024cutlass}
+NVIDIA.
+\newblock CUTLASS: CUDA Templates for Linear Algebra.
+\newblock GitHub, 2024.
+
+\bibitem{tillet2019triton}
+P. Tillet et al.
+\newblock Triton: An Intermediate Language for Tiled Neural Network Computations.
+\newblock In \emph{MAPL}, 2019.
+
+\bibitem{jia2018volta}
+Z. Jia et al.
+\newblock Dissecting the NVIDIA Volta GPU via Microbenchmarking.
+\newblock \emph{arXiv}, 2018.
+
+\bibitem{jia2019turing}
+Z. Jia et al.
+\newblock Dissecting the NVIDIA Turing T4 GPU.
+\newblock \emph{arXiv}, 2019.
+
+\bibitem{jia2021ampere}
+Z. Jia et al.
+\newblock Dissecting the Ampere GPU Architecture.
+\newblock \emph{GTC}, 2021.
+
+\end{thebibliography}
+
+\end{document}

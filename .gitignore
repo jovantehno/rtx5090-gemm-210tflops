@@ -7,6 +7,8 @@
 06_block_swizzle_l2_gemm
 07_async_copy_gemm
 08_combined_optimized_gemm
+benchmark_gemm
+paper/l2_profiler
 
 # Object files
 *.o
@@ -22,3 +24,12 @@ __pycache__/
 *.swp
 *~
 .vscode/
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
