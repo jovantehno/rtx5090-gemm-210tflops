@@ -36,7 +36,8 @@ EXAMPLES = 01_naive_gemm \
            05_swizzled_gemm \
            06_block_swizzle_l2_gemm \
            07_async_copy_gemm \
-           08_combined_optimized_gemm
+           08_combined_optimized_gemm \
+           09_ptx_optimized_gemm
 
 # Build all
 all: $(EXAMPLES)
@@ -64,6 +65,9 @@ all: $(EXAMPLES)
 	$(NVCC) $(NVCC_FLAGS) $< -o $@
 
 08_combined_optimized_gemm: 08_combined_optimized_gemm.cu
+	$(NVCC) $(NVCC_FLAGS) $< -o $@
+
+09_ptx_optimized_gemm: 09_ptx_optimized_gemm.cu
 	$(NVCC) $(NVCC_FLAGS) $< -o $@
 
 # Run all examples
@@ -115,6 +119,8 @@ help:
 	@echo "  05_swizzled_gemm        - Bank conflict elimination"
 	@echo "  06_block_swizzle_l2_gemm - L2 cache optimization"
 	@echo "  07_async_copy_gemm      - Async memory pipeline"
+	@echo "  08_combined_optimized   - All optimizations combined"
+	@echo "  09_ptx_optimized_gemm   - PTX-level optimizations"
 	@echo ""
 	@echo "Targets:"
 	@echo "  make all         - Build all examples"

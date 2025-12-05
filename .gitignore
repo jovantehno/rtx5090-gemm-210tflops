@@ -7,6 +7,7 @@
 06_block_swizzle_l2_gemm
 07_async_copy_gemm
 08_combined_optimized_gemm
+09_ptx_optimized_gemm
 benchmark_gemm
 paper/l2_profiler
 

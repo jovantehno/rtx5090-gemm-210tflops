@@ -1,8 +1,8 @@
 # rtx5090-gemm-210tflops
 
-**From 7 TFLOPS to 215 TFLOPS: A hands-on journey through CUDA GEMM optimization**
+**From 7 TFLOPS to 339 TFLOPS: A hands-on journey through CUDA GEMM optimization**
 
-This repository contains 8 progressive CUDA examples that demonstrate how to write a high-performance matrix multiplication kernel from scratch. Starting with a naive implementation running at 7 TFLOPS, we apply optimization techniques one by one until we reach **215 TFLOPS** — that's **94% of cuBLAS performance** on an RTX 5090.
+This repository contains 9 progressive CUDA examples that demonstrate how to write a high-performance matrix multiplication kernel from scratch. Starting with a naive implementation running at 7 TFLOPS, we apply optimization techniques one by one until we reach **339 TFLOPS** — that's **1.15x faster than cuBLAS** on an RTX 5090.
 
 ## Why This Matters
 
@@ -23,9 +23,10 @@ Example 04: Tensor cores    █████░░░░░░░░░░░░�
 Example 05: Swizzled        █████░░░░░░░░░░░░░░░░░░░░░░░░░   13 TFLOPS  (6%)
 Example 06: L2 optimized    ████████████████░░░░░░░░░░░░░░   71 TFLOPS (31%)
 Example 07: Async pipeline  ███████████████████████░░░░░░░   95 TFLOPS (41%)
-Example 08: Combined        ██████████████████████████████  215 TFLOPS (94%)
+Example 08: Combined        ██████████████████████████████  215 TFLOPS (73%)
+Example 09: PTX-optimized   ██████████████████████████████  339 TFLOPS (115%) ⭐
 ─────────────────────────────────────────────────────────────────────────────
-cuBLAS baseline             ██████████████████████████████  229 TFLOPS
+cuBLAS baseline             ██████████████████████████████  296 TFLOPS
 ```
 
 *Results from RTX 5090 (Blackwell), 4096×4096×4096 FP16 GEMM*
@@ -83,9 +84,10 @@ Tested on **NVIDIA RTX 5090** (Blackwell, SM 12.0):
 | 05 | Swizzled memory | 12.51 | 5.5% |
 | 06 | Block swizzle L2 | 71.38 | 31.1% |
 | 07 | Async pipeline | 95.01 | 41.4% |
-| **08** | **All combined** | **210.47** | **91.7%** |
+| 08 | All combined | 215 | 73% |
+| **09** | **PTX-optimized** | **339** | **115%** |
 
-**cuBLAS baseline**: 229 TFLOPS (4096³ FP16)
+**cuBLAS baseline**: 296 TFLOPS (4096³ FP16, cublasHgemm)
 
 ### Key Insights
 
@@ -175,8 +177,25 @@ All techniques together:
 - XOR-based shared memory swizzling
 - Block swizzle stride tuned for 96MB L2
 
-Result: 215 TFLOPS = 94% of cuBLAS
+Result: 215 TFLOPS = 73% of cuBLAS
 ```
+
+### 8. PTX-Level Optimization (Example 09)
+```
+Further optimizations using PTX ISA features:
+- 4-stage async pipeline (vs 3)
+- Shared memory padding (+8) for bank conflicts
+- L2 prefetch hints (prefetch.global.L2)
+- Cache-all hints (cp.async.ca) on async copies
+- FP16 accumulation (vs cuBLAS's FP32)
+
+Result: 339 TFLOPS = 1.15x faster than cuBLAS ⭐
+```
+
+**Important caveat:** Example 09 uses FP16 accumulators while cuBLAS
+defaults to FP32 for higher numerical accuracy. This tradeoff is
+acceptable for deep learning inference but may not be suitable for
+scientific computing requiring high precision.
 
 ## Possible Applications
 
@@ -216,7 +235,8 @@ Result: 215 TFLOPS = 94% of cuBLAS
 │   ├── 05_swizzled_gemm.cu           # Bank conflict elimination
 │   ├── 06_block_swizzle_l2_gemm.cu   # L2 cache optimization
 │   ├── 07_async_copy_gemm.cu         # Async memory pipeline
-│   └── 08_combined_optimized_gemm.cu # All optimizations (210 TFLOPS)
+│   ├── 08_combined_optimized_gemm.cu # All optimizations (215 TFLOPS)
+│   └── 09_ptx_optimized_gemm.cu     # PTX-level opts (339 TFLOPS) ⭐
 │
 ├── Documentation
 │   ├── README.md                     # This file

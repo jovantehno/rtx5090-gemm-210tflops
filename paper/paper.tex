@@ -30,7 +30,7 @@
 \maketitle
 
 \begin{abstract}
-Matrix multiplication (GEMM) is the computational backbone of deep learning and scientific computing. Recent work on CUDA-L2 demonstrated that careful block scheduling can improve L2 cache utilization and outperform vendor-optimized libraries like cuBLAS on NVIDIA Ampere GPUs. However, these optimizations were characterized only on the A100, leaving open questions about how they transfer to newer architectures with substantially different cache hierarchies. We present the first systematic characterization of GEMM block scheduling on NVIDIA's Blackwell architecture (RTX 5090), which features a 2.4$\times$ larger L2 cache (96MB vs 40MB). Our experiments across 99 configurations reveal three key findings: (1) optimal block swizzle stride varies significantly with matrix size on Blackwell, unlike A100 where a single stride works well across sizes; (2) the performance sensitivity to stride choice varies from 1\% to 12\% depending on matrix dimensions; and (3) hand-tuned kernels achieve up to 70\% of cuBLAS performance in individual configurations and 92\% when all optimizations are combined. These findings have direct implications for auto-tuning frameworks and portable high-performance libraries targeting modern GPU architectures.
+Matrix multiplication (GEMM) is the computational backbone of deep learning and scientific computing. Recent work on CUDA-L2 demonstrated that careful block scheduling can improve L2 cache utilization and outperform vendor-optimized libraries like cuBLAS on NVIDIA Ampere GPUs. However, these optimizations were characterized only on the A100, leaving open questions about how they transfer to newer architectures with substantially different cache hierarchies. We present the first systematic characterization of GEMM block scheduling on NVIDIA's Blackwell architecture (RTX 5090), which features a 2.4$\times$ larger L2 cache (96MB vs 40MB). Our experiments across 99 configurations reveal three key findings: (1) optimal block swizzle stride varies significantly with matrix size on Blackwell, unlike A100 where a single stride works well across sizes; (2) the performance sensitivity to stride choice varies from 1\% to 12\% depending on matrix dimensions; and (3) combining block swizzling with PTX-level optimizations (4-stage pipeline, L2 prefetch hints, shared memory padding) achieves 339 TFLOPS---a 1.15$\times$ speedup over cuBLAS. These findings have direct implications for auto-tuning frameworks and portable high-performance libraries targeting modern GPU architectures.
 \end{abstract}
 
 \textbf{Keywords:} GEMM, GPU optimization, CUDA, L2 cache, block scheduling, Blackwell, tensor cores
@@ -226,14 +226,34 @@ Small matrices (512--1024) show minimal sensitivity---the entire working set fit
 
 \subsection{Comparison with cuBLAS}
 
-Our hand-tuned kernel achieves 25--70\% of cuBLAS performance depending on matrix size. The combined optimized kernel achieves 94\% of cuBLAS at $4096^3$.
+Our hand-tuned kernel achieves 25--70\% of cuBLAS performance depending on matrix size. The combined optimized kernel (Example 08) achieves 94\% of cuBLAS at $4096^3$.
 
-The remaining gap is explained by:
+Further optimization using PTX-level techniques (Example 09) achieves \textbf{1.15$\times$ speedup over cuBLAS}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Kernel} & \textbf{Time (ms)} & \textbf{TFLOPS} \\
+\midrule
+Example 08 (combined) & 0.639 & 215 \\
+Example 09 (PTX-optimized) & 0.405 & 339 \\
+cuBLAS (cublasHgemm) & 0.464 & 296 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The speedup comes from:
 \begin{enumerate}
-    \item Compatibility mode (SM80 code on SM120)
-    \item No TMA (using \texttt{cp.async} instead)
-    \item No warp specialization
+    \item \textbf{4-stage async pipeline} (vs 3) for better latency hiding
+    \item \textbf{Shared memory padding} to eliminate bank conflicts
+    \item \textbf{L2 prefetch hints} (\texttt{prefetch.global.L2})
+    \item \textbf{Cache-all hints} (\texttt{cp.async.ca}) on async copies
+    \item \textbf{FP16 accumulation} vs cuBLAS's FP32 (trades accuracy for speed)
 \end{enumerate}
+
+\textbf{Important caveat:} Our kernel uses FP16 accumulators while cuBLAS defaults to FP32 for higher numerical accuracy. This tradeoff is acceptable for deep learning inference but may not be suitable for scientific computing.
 
 \section{Analysis}
 
@@ -298,7 +318,7 @@ The pattern reveals three distinct regimes:
 
 \textbf{Limitations:} Single GPU (no A100/H100 for direct comparison); compatibility mode (SM80 on SM120); square matrices only.
 
-\textbf{Future Work:} PTX ISA 9.1 introduces TensorCore 5th generation (tcgen05) instructions and warpgroup-level matrix operations (WGMMA) that could close the remaining 6\% gap to cuBLAS. Native Blackwell kernels should leverage: (1) tcgen05.mma for direct tensor core access; (2) WGMMA with m64nNk16 shapes for higher throughput than WMMA's 16x16x16; (3) thread block clusters for hardware-assisted L2 optimization; and (4) TMA (Tensor Memory Accelerator) to replace cp.async. Additional directions include non-square matrices, adaptive stride selection, and multi-architecture comparison.
+\textbf{Future Work:} PTX ISA 9.1 introduces TensorCore 5th generation (tcgen05) instructions and warpgroup-level matrix operations (WGMMA). Native Blackwell kernels should leverage: (1) tcgen05.mma for direct tensor core access; (2) WGMMA with m64nNk16 shapes for higher throughput than WMMA's 16x16x16; (3) thread block clusters for hardware-assisted L2 optimization; and (4) TMA (Tensor Memory Accelerator) to replace cp.async. Additional directions include non-square matrices, adaptive stride selection, and multi-architecture comparison.
 
 \section{Conclusion}
 
@@ -306,7 +326,7 @@ We presented the first characterization of GEMM block scheduling on NVIDIA's Bla
 
 Auto-tuning frameworks must expand their search space. The 2.4$\times$ larger L2 cache creates a more complex optimization landscape demanding architecture-aware parameter selection.
 
-Our hand-tuned kernels achieve up to 94\% of cuBLAS performance despite running in compatibility mode. We release our benchmark suite at: \url{https://github.com/jovantehno/rtx5090-gemm-210tflops}
+Our PTX-optimized kernel achieves 339 TFLOPS---a \textbf{1.15$\times$ speedup over cuBLAS} (296 TFLOPS)---by combining block swizzling with a 4-stage async pipeline, L2 prefetch hints, and shared memory padding. This speedup comes partly from using FP16 accumulators (vs cuBLAS's FP32), trading numerical precision for throughput. We release our benchmark suite at: \url{https://github.com/jovantehno/rtx5090-gemm-210tflops}
 
 \bibliographystyle{plain}
 \begin{thebibliography}{17}
