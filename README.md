@@ -314,6 +314,7 @@ See `claude-5090.md` for detailed Blackwell adaptation guide and [PTX ISA 9.1](h
 ## References
 
 - [CUDA-L2 Paper](https://arxiv.org/pdf/2512.02551) — RL-based kernel optimization that beats cuBLAS
+- [PTX ISA 9.1](https://docs.nvidia.com/cuda/parallel-thread-execution/) — PTX instruction reference (used in Example 09)
 - [NVIDIA CUTLASS](https://github.com/NVIDIA/cutlass) — Template library for high-performance GEMM
 - [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)
 - [Nsight Compute Documentation](https://docs.nvidia.com/nsight-compute/)
