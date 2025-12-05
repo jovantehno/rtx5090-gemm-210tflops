@@ -53,9 +53,9 @@ def load_data(csv_path):
 
 def fig1_optimization_progression(output_dir):
     """
-    Figure 1: Bar chart showing TFLOPS progression through examples 01-08
+    Figure 1: Bar chart showing TFLOPS progression through examples 01-09
     """
-    # Data from our experiments
+    # Data from our experiments (2000-iteration benchmarks)
     examples = {
         '01\nNaive': 6.97,
         '02\nTiled': 6.15,
@@ -64,11 +64,12 @@ def fig1_optimization_progression(output_dir):
         '05\nSwizzled': 12.51,
         '06\nL2\nOptim': 71.38,
         '07\nAsync': 95.01,
-        '08\nCombined': 210.47,
+        '08\nCombined': 215,
+        '09\nPTX\nOptim': 380,
     }
-    cublas = 229.4
+    cublas = 354  # cublasHgemm, 2000 iterations
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(11, 5))
 
     names = list(examples.keys())
     values = list(examples.values())
@@ -76,7 +77,7 @@ def fig1_optimization_progression(output_dir):
 
     bars = ax.bar(names, values, color=colors, edgecolor='black', linewidth=0.5)
 
-    # Highlight the best one
+    # Highlight the best one (Example 09)
     bars[-1].set_color('#2ecc71')
     bars[-1].set_edgecolor('black')
 
@@ -94,9 +95,9 @@ def fig1_optimization_progression(output_dir):
 
     ax.set_ylabel('TFLOPS')
     ax.set_xlabel('Optimization Stage')
-    ax.set_title('GEMM Optimization Progression on RTX 5090 (4096³ FP16)')
+    ax.set_title('GEMM Optimization Progression on RTX 5090 (4096³ FP16, 2000 iterations)')
     ax.legend(loc='upper left')
-    ax.set_ylim(0, 260)
+    ax.set_ylim(0, 420)
 
     plt.tight_layout()
     plt.savefig(output_dir / 'fig1_optimization_progression.png')
