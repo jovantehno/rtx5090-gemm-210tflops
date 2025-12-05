@@ -33,3 +33,6 @@ __pycache__/
 *.fls
 *.fdb_latexmk
 *.synctex.gz
+
+# Personal notes
+afterreboot.md
