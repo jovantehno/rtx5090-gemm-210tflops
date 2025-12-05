@@ -1,8 +1,8 @@
 # rtx5090-gemm-210tflops
 
-**From 7 TFLOPS to 210 TFLOPS: A hands-on journey through CUDA GEMM optimization**
+**From 7 TFLOPS to 215 TFLOPS: A hands-on journey through CUDA GEMM optimization**
 
-This repository contains 8 progressive CUDA examples that demonstrate how to write a high-performance matrix multiplication kernel from scratch. Starting with a naive implementation running at 7 TFLOPS, we apply optimization techniques one by one until we reach **210 TFLOPS** — that's **92% of cuBLAS performance** on an RTX 5090.
+This repository contains 8 progressive CUDA examples that demonstrate how to write a high-performance matrix multiplication kernel from scratch. Starting with a naive implementation running at 7 TFLOPS, we apply optimization techniques one by one until we reach **215 TFLOPS** — that's **94% of cuBLAS performance** on an RTX 5090.
 
 ## Why This Matters
 
@@ -23,7 +23,7 @@ Example 04: Tensor cores    █████░░░░░░░░░░░░�
 Example 05: Swizzled        █████░░░░░░░░░░░░░░░░░░░░░░░░░   13 TFLOPS  (6%)
 Example 06: L2 optimized    ████████████████░░░░░░░░░░░░░░   71 TFLOPS (31%)
 Example 07: Async pipeline  ███████████████████████░░░░░░░   95 TFLOPS (41%)
-Example 08: Combined        ██████████████████████████████  210 TFLOPS (92%)
+Example 08: Combined        ██████████████████████████████  215 TFLOPS (94%)
 ─────────────────────────────────────────────────────────────────────────────
 cuBLAS baseline             ██████████████████████████████  229 TFLOPS
 ```
@@ -175,7 +175,7 @@ All techniques together:
 - XOR-based shared memory swizzling
 - Block swizzle stride tuned for 96MB L2
 
-Result: 210 TFLOPS = 92% of cuBLAS
+Result: 215 TFLOPS = 94% of cuBLAS
 ```
 
 ## Possible Applications
@@ -260,15 +260,36 @@ make help
 
 ## What's Next
 
-To push beyond 92% of cuBLAS:
+To push beyond 94% of cuBLAS, PTX ISA 9.1 introduces several Blackwell-native features:
 
-1. **Native SM120 build** — Use Blackwell-specific tensor core ops
-2. **TMA integration** — Replace cp.async with Tensor Memory Accelerator
-3. **Larger tiles** — Utilize Blackwell's increased shared memory (228KB)
-4. **Warp specialization** — Dedicated producer/consumer warps
+### Immediate Priorities
+
+1. **tcgen05 (TensorCore 5th Gen)** — Native Blackwell tensor core instructions
+   - `tcgen05.mma` for direct matrix multiply-accumulate
+   - "Tensor Memory" — new memory space distinct from shared memory
+   - Block scaling and compressed formats (4-bit, 6-bit FP)
+
+2. **WGMMA (Warpgroup MMA)** — Higher throughput than WMMA
+   - Operates on warpgroup (4 warps) granularity
+   - Shapes like m64nNk16 vs WMMA's 16x16x16
+   - `wgmma.mma_async` with fence/commit/wait semantics
+
+3. **Thread Block Clusters** — Hardware-assisted L2 optimization
+   - Groups of CTAs that sync and share memory across blocks
+   - `barrier.cluster` for cluster-wide synchronization
+   - Could replace software block swizzling
+
+4. **TMA (Tensor Memory Accelerator)** — Replace cp.async
+   - Hardware-managed tensor data movement
+   - Automatic address calculation and strided copies
+
+### Additional Directions
+
 5. **FP8 support** — Blackwell's native FP8 tensor cores
+6. **Non-square matrices** — Real workload shapes (e.g., 4096×1024×8192)
+7. **Adaptive stride selection** — Runtime tuning based on matrix dimensions
 
-See `claude-5090.md` for detailed Blackwell adaptation guide.
+See `claude-5090.md` for detailed Blackwell adaptation guide and [PTX ISA 9.1](https://docs.nvidia.com/cuda/parallel-thread-execution/) for instruction reference.
 
 ## References
 

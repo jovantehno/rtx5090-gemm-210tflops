@@ -296,9 +296,9 @@ The pattern reveals three distinct regimes:
 
 \section{Limitations and Future Work}
 
-\textbf{Limitations:} Single GPU (no A100/H100 for direct comparison); compatibility mode; square matrices only.
+\textbf{Limitations:} Single GPU (no A100/H100 for direct comparison); compatibility mode (SM80 on SM120); square matrices only.
 
-\textbf{Future Work:} Native Blackwell kernels with TMA; non-square matrices; adaptive stride selection; multi-architecture comparison.
+\textbf{Future Work:} PTX ISA 9.1 introduces TensorCore 5th generation (tcgen05) instructions and warpgroup-level matrix operations (WGMMA) that could close the remaining 6\% gap to cuBLAS. Native Blackwell kernels should leverage: (1) tcgen05.mma for direct tensor core access; (2) WGMMA with m64nNk16 shapes for higher throughput than WMMA's 16x16x16; (3) thread block clusters for hardware-assisted L2 optimization; and (4) TMA (Tensor Memory Accelerator) to replace cp.async. Additional directions include non-square matrices, adaptive stride selection, and multi-architecture comparison.
 
 \section{Conclusion}
 
