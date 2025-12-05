@@ -22,7 +22,7 @@
 
 \title{\textbf{From Ampere to Blackwell: L2 Cache Scaling and Block Scheduling in High-Performance GEMM}}
 
-\author{Anonymous}
+\author{jovantehno}
 \date{}
 
 \begin{document}
@@ -154,7 +154,7 @@ Figure~\ref{fig:progression} shows the performance progression through our eight
 \begin{figure}[t]
     \centering
     \includegraphics[width=\columnwidth]{figures/fig1_optimization_progression.pdf}
-    \caption{GEMM optimization progression on RTX 5090 ($4096^3$ FP16). Starting from 7 TFLOPS, successive optimizations yield 210 TFLOPS (92\% of cuBLAS).}
+    \caption{GEMM optimization progression on RTX 5090 ($4096^3$ FP16). Starting from 7 TFLOPS, successive optimizations yield 215 TFLOPS (94\% of cuBLAS).}
     \label{fig:progression}
 \end{figure}
 
@@ -162,7 +162,7 @@ Starting from a naive implementation at 7 TFLOPS:
 \begin{itemize}
     \item Double buffering enables pipelining: 2.7$\times$ improvement
     \item Block swizzling for L2: major jump to 71 TFLOPS
-    \item Full combination: 210 TFLOPS (92\% of cuBLAS)
+    \item Full combination: 215 TFLOPS (94\% of cuBLAS)
 \end{itemize}
 
 \subsection{Stride vs. Matrix Size Heatmap}
@@ -226,7 +226,7 @@ Small matrices (512--1024) show minimal sensitivity---the entire working set fit
 
 \subsection{Comparison with cuBLAS}
 
-Our hand-tuned kernel achieves 25--70\% of cuBLAS performance depending on matrix size. The combined optimized kernel achieves 92\% of cuBLAS at $4096^3$.
+Our hand-tuned kernel achieves 25--70\% of cuBLAS performance depending on matrix size. The combined optimized kernel achieves 94\% of cuBLAS at $4096^3$.
 
 The remaining gap is explained by:
 \begin{enumerate}
@@ -306,7 +306,7 @@ We presented the first characterization of GEMM block scheduling on NVIDIA's Bla
 
 Auto-tuning frameworks must expand their search space. The 2.4$\times$ larger L2 cache creates a more complex optimization landscape demanding architecture-aware parameter selection.
 
-Our hand-tuned kernels achieve up to 92\% of cuBLAS performance despite running in compatibility mode. We release our benchmark suite at: \url{https://github.com/jovantehno/rtx5090-gemm-210tflops}
+Our hand-tuned kernels achieve up to 94\% of cuBLAS performance despite running in compatibility mode. We release our benchmark suite at: \url{https://github.com/jovantehno/rtx5090-gemm-210tflops}
 
 \bibliographystyle{plain}
 \begin{thebibliography}{17}

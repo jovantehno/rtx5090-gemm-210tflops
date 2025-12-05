@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-cd /home/arch/Documents/Work/cudaL2/examples
+cd <path-to-repo>/examples
 
 # Build all examples
 make all
@@ -22,7 +22,7 @@ To compare your results against cuBLAS (the "gold standard"), you can use the CU
 ### Method 1: Using CUDA-L2's Benchmark Scripts
 
 ```bash
-cd /home/arch/Documents/Work/cudaL2/CUDA-L2
+cd <path-to-cuda-l2>/CUDA-L2
 
 # Set up environment
 export CUTLASS_DIR=/path/to/cutlass  # Clone v4.2.1 first if needed
